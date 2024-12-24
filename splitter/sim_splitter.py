@@ -1,12 +1,10 @@
 """基于相似度的切分"""
 import re
 import copy
-import openai
 import logging
 import numpy as np
-from langchain_community.document_loaders import TextLoader
 from langchain_core.documents import Document
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, cast, Union
+from typing import Dict, List, Literal, Optional, Tuple, cast, Union
 
 Matrix = Union[List[List[float]], List[np.ndarray], np.ndarray]
 
@@ -95,7 +93,7 @@ def calculate_cosine_distances(sentences: List[dict]) -> Tuple[List[float], List
 
 class SimilarityBasedSplitter():
     """通过相似度切分文档.
-
+    
     来自Greg Kamradt's wonderful notebook:
     https://github.com/FullStackRetrieval-com/RetrievalTutorials/blob/main/tutorials/LevelsOfTextSplitting/5_Levels_Of_Text_Splitting.ipynb
 

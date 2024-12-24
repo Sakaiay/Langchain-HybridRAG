@@ -1,9 +1,9 @@
 import os
 import openai
 import utils.cprint as ct 
+from config import get_config
 from utils import logger, prompt_template
-from splitter.text_splitter import TextSplit
-from splitter.sim_splitter import SimilarityBasedSplitter
+from splitter import *
 from langchain_community.document_loaders import TextLoader
 from embedding.local_embedding import LocalEmbedding
 from knowledge_db.chroma_service import ChromaDatabase
@@ -13,24 +13,18 @@ from retriever.retriever_service import RetireverService
 
 
 if __name__ == '__main__':
+    config = get_config()
+    
+    llm_config = config['llm']
+    embeddings_config = config['embedding']
     
     # 定义embedding模型
-    _params = {
-        "base_url": 'http://127.0.0.1:9997/v1',
-        "api_key": 'EMPTY',
-    }
-    client = openai.Client(**_params)
-    embeddings = LocalEmbedding(model='bge-m3', client=client)
+    embedding_name = embeddings_config['model']
+    embedding_params = embeddings_config['params']
+    embeddings = LocalEmbedding(model=embedding_name, client=openai.Client(**embedding_params))
     
     # 定义LLM
-    params = {
-        "model_name" : "qwen2-instruct",
-        "temperature": 0.2,
-        "base_url": 'http://127.0.0.1:9997/v1',
-        "api_key": 'EMPTY',
-    }
-    llm = ChatOpenAI(**params)
-    
+    llm = ChatOpenAI(**llm_config['params'])
     
     # 分割文本
     file_path = './data/人物介绍.txt'
@@ -43,7 +37,6 @@ if __name__ == '__main__':
     # splitter = TextSplit(chunk_size=250, chunk_overlap=150)
     # texts = splitter.split_docs(documents)
     
-
     chroma_db = ChromaDatabase(db_name='db_test', embedding=embeddings)
     
     doc_info = chroma_db.add_docs(texts)
@@ -53,7 +46,7 @@ if __name__ == '__main__':
     prompt_ = prompt_template.rag_prompt
     query = "特朗普的名言"
     retriever_docs = retriever.get_relevant_documents(query)
-    print(retriever_docs)
+    # print(retriever_docs)
     prompt = ChatPromptTemplate.from_messages([prompt_])
     context = "\n\n".join([doc.page_content for doc in retriever_docs])
     chain = prompt | llm
