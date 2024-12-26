@@ -208,10 +208,9 @@ class Faithfulness(Metric_With_LLM_Interface):
         try:
             statements = self.create_statements(instance)
         except Exception as e:
-            print("发生错误:")
+            print("生成陈述|发生错误:")
             traceback.print_exc()
             print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
-            statements = None
             return np.nan
         
         if len(statements)==0 or statements is None:
@@ -222,10 +221,10 @@ class Faithfulness(Metric_With_LLM_Interface):
         try:
             statement_verdicts = self.create_verdicts(instance, statements)
         except Exception as e:
-            print("发生错误:")
+            print("判断陈述|发生错误:")
             traceback.print_exc()
             print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
-            statement_verdicts = None
+            return np.nan
             
         if len(statement_verdicts)==0 or statement_verdicts is None:
             print('陈述判断异常')
@@ -236,15 +235,14 @@ class Faithfulness(Metric_With_LLM_Interface):
             score = self.compute_score(statement_verdicts)
             return score
         except Exception as e:
-            print("发生错误:")
+            print("计算分数|发生错误:")
             traceback.print_exc()
             print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
             return np.nan
 
 
 class Answer_Relevance(Metric_With_LLM_Interface, Metric_With_Embedding_Interface):
-
-    
+    """该指标根据回答生成多个问题，并计算生成的问题与实际的问题的语义相似度"""
     def __init__(self, llm:ChatOpenAI, embedding:Embeddings):
         Metric_With_LLM_Interface.__init__(self, llm)
         Metric_With_Embedding_Interface.__init__(self, embedding)
@@ -293,10 +291,9 @@ class Answer_Relevance(Metric_With_LLM_Interface, Metric_With_Embedding_Interfac
         try:
             query_gen = self.create_query(instance)
         except Exception as e:
-            print("发生错误:")
+            print("生成问题|发生错误:")
             traceback.print_exc()
             print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
-            query_gen = None
             return np.nan
         
         if len(query_gen)==0 or query_gen is None:
@@ -308,14 +305,14 @@ class Answer_Relevance(Metric_With_LLM_Interface, Metric_With_Embedding_Interfac
             score = self.eval_query_similarity(instance, query_gen)
             return score
         except Exception as e:
-            print("计算问题相似度发生错误:")
+            print("计算问题相似度|发生错误:")
             traceback.print_exc()
             print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
             return np.nan
 
 
 class Context_Precision(Metric_With_LLM_Interface):
-    
+    """该指标计算上下文整体对回答的有效性，结合排名"""
     def __init__(self, llm):
         super(Context_Precision, self).__init__(llm)
 
@@ -376,10 +373,259 @@ class Context_Precision(Metric_With_LLM_Interface):
 
 
     def evaluate(self, instance):
-        verdict_dict = self.verdict_usefulness(instance)
-        verdict_score = [item['判决结果'] for item in verdict_dict]
-        average_precision = self.calculate_average_precision(verdict_score)
-        return average_precision
+        try:
+            verdict_dict = self.verdict_usefulness(instance)
+            verdict_score = [item['判决结果'] for item in verdict_dict]
+        except Exception as e:
+            print("计算问题相似度|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return np.nan
+        try:
+            average_precision = self.calculate_average_precision(verdict_score)
+            return average_precision
+        except Exception as e:
+            print("计算分数|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return np.nan
+
+
+class Context_Recall(Metric_With_LLM_Interface):
+    """该指标计算回答的每句话是否与上下文相关，取平均相关度"""
+    def __init__(self, llm):
+        super(Context_Recall, self).__init__(llm)
+        self.prompt_4_sentence_contextual_relevance = \
+"""# 指令
+
+给定上下文和回答，分析回答中的每个句子，并判断该句子是否与给定的上下文相关,使用 1 或 0 进行二进制分类。
+注意，非涉及具体内容的句子，例如过渡句，不需要分析，直接跳过。
+输出格式如下：
+[
+    {{
+        "句子":"回答中第1个句子"
+        "判决理由":"对句子是否与给定的上下文相关的分析和思考",
+        "判决结果":0/1
+    }},
+    ...
+]
+
+# 回答
+
+{answer}
+
+# 上下文
+
+{context}
+
+# 输出
+"""
+
+    def verdict_sentence_contextual_relevance(self, instance:Dict):
+
+        answer, retrieved_contexts = instance['response'], instance['retrieved_contexts']
+
+        prompts = [
+            self.prompt_4_sentence_contextual_relevance.format(
+                answer = answer,
+                context = context
+            )
+            for context in retrieved_contexts
+        ]
+        rets = [self.call_llm(item) for item in prompts]
+        rets = [self.parse_json_output(item) for item in rets]
+        return rets
+    
+    def compute_precision(self, scores):
+        denom = len(scores)
+        numerator = sum(scores)
+        ave_score = numerator / denom if denom > 0 else np.nan
+        return ave_score
+    
+    def evaluate(self, instance):
+        try:
+            sentence_contextual_relevance_verdicts = self.verdict_sentence_contextual_relevance(instance)
+        except Exception as e:
+            print("生成判决|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return np.nan
+        
+        try:
+            context_scores = []
+            for a_context_verdicts in sentence_contextual_relevance_verdicts:
+                tmp_scores = [item['判决结果'] for item in a_context_verdicts]
+                context_scores.extend(tmp_scores)   
+        except Exception as e:
+            print("判决分数解析|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return np.nan
+        
+        try:
+            ave_score = self.compute_precision(context_scores)
+            return ave_score
+        except Exception as e:
+            print("计算分数|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return np.nan
+
+
+class Context_Precision(Metric_With_LLM_Interface):
+    """给事实陈述和回答，计算回答陈述的准确率、召回率、F1分数和假阴性率"""
+    def __init__(self, llm):
+        super(Context_Precision, self).__init__(llm)
+        self.prompt_4_answer_referred_classify = \
+"""
+给定一个事实陈述和一个答案，分析答案的每个语句，并判断该语句是否得到事实陈述的支持，若得到支持则判断为1，若没有得到支持则判断为0。
+输出格式如下：
+[
+    {{
+        "答案语句":"答案的第1个语句",
+        "判断分析":"该语句是否能得到事实陈述中任意一句话的支持",
+        "判断结果":0/1
+    }},
+    ...
+]
+
+# 回答
+
+{answer}
+
+# 事实陈述
+
+{reference}
+
+# 输出
+"""
+
+        self.prompt_4_ground_truth_referred_classify = \
+"""
+给定一个事实陈述和一个答案，分析事实陈述的每个语句，并判断该语句是否在答案中体现出来，若存在则判断为1，若不存在则判断为0。
+输出格式如下
+[
+    {{
+        "事实陈述语句":"事实陈述的第1个语句",
+        "判断分析":"分析该语句是否在答案中体现出来",
+        "判断结果":0/1
+    }},
+    ...
+]
+
+# 回答
+
+{answer}
+
+# 事实陈述
+
+{reference}
+
+# 输出
+"""
+
+    def classify_answer_referred(self, instance:Dict):
+
+        answer, ground_truth = instance['response'], instance['reference']
+        answer_sentences = self.sentence_segmenter.segment(answer)
+
+        prompt = self.prompt_4_answer_referred_classify.format(
+            answer = json.dumps(answer, indent=2, ensure_ascii=False),
+            reference = ground_truth
+        )
+        ret = self.call_llm(prompt)
+        ret = self.parse_json_output(ret)
+        TP, FP = [], []
+        for item in ret:
+            tmp = {
+                "语句":item["答案语句"],
+                "分析":item["判断分析"]
+            }
+            if item["判断结果"] == 1:
+                TP.append(tmp)
+            elif item["判断结果"] == 0:
+                FP.append(tmp)
+        return TP, FP
+    
+    def classify_ground_truth_referred(self, instance:Dict):
+
+        answer, ground_truth = instance['response'], instance['reference']
+        ground_truth_sentences = self.sentence_segmenter.segment(ground_truth)
+
+        prompt = self.prompt_4_ground_truth_referred_classify.format(
+            answer = answer,
+            reference = json.dumps(ground_truth, indent=2, ensure_ascii=False)
+        )
+        ret = self.call_llm(prompt)
+        ret = self.parse_json_output(ret)
+
+        FN = []
+        for item in ret:
+            tmp = {
+                "语句":item["事实陈述语句"],
+                "分析":item["判断分析"]
+            }
+            if item["判断结果"] == 0:
+                FN.append(tmp)
+        
+        return FN
+    
+    def calculate_metrics(self, TP, FP, FN):
+
+        if TP + FP != 0:
+            precision = TP / (TP + FP)
+        else:
+            precision = 0  
+            
+        if TP + FN != 0:
+            recall = TP / (TP + FN)
+        else:
+            recall = 0  
+            
+        if precision + recall != 0:
+            f1_score = 2 * (precision * recall) / (precision + recall)
+        else:
+            f1_score = 0  
+            
+        if TP + FN != 0:
+            fnr = FN / (FN + TP)
+        else:
+            fnr = 0  
+        
+        return precision, recall, f1_score, fnr
+    
+    def evaluate(self, instance):
+
+        default_exception_ret = (np.nan, np.nan, np.nan, np.nan)
+
+        try:
+            TP, FP = self.classify_answer_referred(instance)
+        except Exception as e:
+            print("分类回答语句|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return default_exception_ret
+        
+        try:
+            FN = self.classify_ground_truth_referred(instance)
+        except Exception as e:
+            print("分类事实陈述|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return default_exception_ret
+        
+        TP_num = len(TP)
+        FP_num = len(FP)
+        FN_num = len(FN)
+        print()
+        try:
+            precision, recall, f1_score, fnr = self.calculate_metrics(TP_num, FP_num, FN_num)
+            return (precision, recall, f1_score, fnr)
+        except Exception as e:
+            print("计算分数|发生错误:")
+            traceback.print_exc()
+            print(f'当前数据:\n{json.dumps(instance, indent=2, ensure_ascii=False)}')
+            return default_exception_ret
 
 
 if __name__ == "__main__":
