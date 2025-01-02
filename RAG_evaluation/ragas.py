@@ -1,3 +1,8 @@
+"""
+这个评估方法的思路参考：
+RAGAS: Automated Evaluation of Retrieval Augmented Generation
+"""
+
 import re
 import yaml
 import json
