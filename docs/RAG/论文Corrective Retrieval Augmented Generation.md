@@ -54,7 +54,6 @@ strips_data.append((scores, p, i))
 T5直接输出分数。
 
 
-
 如果是`[INCORRECT]`
 
 代码参考：
@@ -64,12 +63,9 @@ T5直接输出分数。
 利用prompt+ChatGPT提取问题的关键词，然后根据关键词搜索，得到搜索结果后，再将结果输入T5中进行评分，取top k作为返回的结果。
 
 
-
 ### 总结
 
 代码缺乏参考意义，没有RAG整体流程，这个方法调用模型有点多，检索的时候调用了T5，还有GPT，回答问题还得调用模型，没有太大参考意义，可以看的点：**如何微调T5**
-
-
 
 微调T5-large
 
@@ -82,3 +78,28 @@ T5-large参数量为0.7B
 训练时显存应该占据：2.8*4=11.2G
 
 bs为1时，占据显存14.8G
+
+**数据格式如下**：
+
+```Markdown
+What is George Rankin's occupation? [SEP] He died in Windsor in 1893. Arthur Rankin Arthur Rankin (1816 – March 13, 1893) was a surveyor, entrepreneur and political figure in Canada West. Rankin was born in Montreal in 1816, the son of Irish immigrants. He ran away from home and became a cabin boy. In 1835, he returned to Canada, then qualified as a surveyor and moved to the Windsor area. In 1837, he smuggled an escaped slave from Ohio to Upper Canada. He served in the militia during the 1837 Rebellions. In 1843, with nine Ojibwas, he toured Britain with a "wild west show" that appeared       0
+What is George Rankin's occupation? [SEP] war, Rankin was sent to Egypt to suppress a rebellion, after which he returned to Australia. He returned to the Militia, becoming a brigadier in 1936 and a major general in 1937. During this time, he developed an interest in politics, in particular the Country Party. Rankin was elected chief president of the Victorian United Country Party (VUCP) in 1937, but resigned later that year in order to contest the seat of Bendigo in the Australian House of Representatives. He was elected, and became part of the faction of the Country Party that advocated coalition with the United Australia Party.    1
+```
+
+数据分为三部分，`[SEP]`之前为query，`[SEP]`之后为passage，最后为label，passage和query相关则为1，不相关则为0。
+
+```Python
+model = T5ForSequenceClassification.from_pretrained(model_path, num_labels=1)
+```
+
+使用的是`T5ForSequenceClassification`，由`T5Model`和`T5ClassificationHead`组成
+
+```Python
+self.transformer = T5Model(config)
+self.classification_head = T5ClassificationHead(config)
+```
+
+模型的输入为：query+passage
+
+输出为：label
+
