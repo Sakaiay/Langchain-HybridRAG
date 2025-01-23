@@ -1,3 +1,4 @@
+# Corrective Retrieval Augmented Generation
 [https://github.com/HuskyInSalt/CRAG/tree/main](https://github.com/HuskyInSalt/CRAG/tree/main)
 
 [https://arxiv.org/pdf/2401.15884.pdf](https://arxiv.org/pdf/2401.15884.pdf)
